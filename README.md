@@ -62,23 +62,95 @@ go vet ./...
 
 ## Usage
 
+### Basic Examples
+
 ```sh
-# Out of the box: system proxy is enabled automatically, no client setup needed
+# Start with automatic system proxy (catches most applications)
 ./httpsniff
 
-# + transparent capture (applications that ignore system proxy)
-sudo ./httpsniff --transparent
+# Capture traffic from a specific process by PID
+./httpsniff --pid 12345
 
-# + HTTP/3 (QUIC) capture
+# Log capture to file (without ANSI colors)
+./httpsniff --log-file capture.log
+
+# Restore proxy settings after crash
+./httpsniff restore
+```
+
+### Browser Traffic
+
+```sh
+# Chrome/Firefox/Edge — system proxy is set automatically
+./httpsniff
+
+# If browser ignores proxy, use transparent mode (Linux/macOS)
+sudo ./httpsniff --transparent
+```
+
+### Command-line Tools
+
+```sh
+# curl respects system proxy by default
+./httpsniff
+curl https://example.com
+
+# wget with explicit proxy
+./httpsniff --port 9090
+wget -e use_proxy=yes -e http_proxy=127.0.0.1:9090 https://example.com
+```
+
+### Flutter/Dart Applications
+
+Flutter apps ignore system proxy and use their own certificate store (BoringSSL).
+In transparent mode, HTTPS is **not decrypted** by default, but SNI host is shown.
+
+```sh
+# 1. Find Flutter app PID (Task Manager or ps)
+# Windows:
+tasklist | findstr flutter
+# Linux/macOS:
+ps aux | grep flutter
+
+# 2. Start capture with transparent mode (SNI only, no decryption)
+sudo ./httpsniff --transparent --pid <PID>
+
+# 3. For full decryption — use unpin (see "Flutter/Dart" section below)
+```
+
+### Windows: UWP/WinUI Apps
+
+Windows 11 isolates UWP apps in AppContainer. Allow loopback first:
+
+```sh
+# Allow all apps (requires admin)
+httpsniff winconfig exempt-all
+
+# Or allow specific app
+httpsniff winconfig exempt MyAppName
+
+# Then start capture
+httpsniff
+```
+
+### HTTP/3 (QUIC) Capture
+
+```sh
+# Capture QUIC/UDP traffic (requires root/admin)
 sudo ./httpsniff --quic
 
-# Custom port / only process PID 12345 / custom CA
-./httpsniff --port 9090
-./httpsniff --pid 12345
-./httpsniff --ca-cert my-ca.pem --ca-key my-ca.key
+# Combined with transparent mode
+sudo ./httpsniff --transparent --quic
+```
 
-# Restore proxy settings after a crash
-./httpsniff restore
+### Custom CA Certificate
+
+```sh
+# Use your own CA for existing infrastructure
+./httpsniff --ca-cert /path/to/ca.pem --ca-key /path/to/ca.key
+
+# Generate new CA (default behavior)
+./httpsniff  # creates ca-cert.pem and ca-key.pem
 ```
 
 Flags:

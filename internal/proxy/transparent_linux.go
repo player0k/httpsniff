@@ -5,7 +5,9 @@ package proxy
 import (
 	"fmt"
 	"net"
+	"os/exec"
 	"strconv"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -15,9 +17,15 @@ import (
 
 const soOriginalDst = 80
 
-// ServeTransparent запускает прозрачный перехват TCP: клиенты, чей трафик
-// перенаправлен через iptables REDIRECT на этот порт, обслуживаются с
-// определением исходного адреса назначения через SO_ORIGINAL_DST.
+var (
+	iptMu       sync.Mutex
+	iptApplied  bool
+	iptPort     string
+)
+
+// ServeTransparent запускает прозрачный перехват TCP: автоматически настраивает
+// iptables REDIRECT для TCP 80/443 → указанный порт, клиенты обслуживаются
+// с определением исходного адреса назначения через SO_ORIGINAL_DST.
 func (p *Proxy) ServeTransparent(addr string, tport int) (func(), error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -33,9 +41,71 @@ func (p *Proxy) ServeTransparent(addr string, tport int) (func(), error) {
 		}
 	}()
 
-	fmt.Printf("\033[2m%s\033[0m\n", i18n.T("proxy.transparentLinux", addr, tport))
+	if err := setupIptables(tport); err != nil {
+		ln.Close()
+		return nil, err
+	}
 
-	return func() { ln.Close() }, nil
+	fmt.Printf("\033[2m%s\033[0m\n", i18n.T("proxy.transparentLinuxActive", addr, tport))
+
+	return func() {
+		ln.Close()
+		restoreIptables()
+	}, nil
+}
+
+// setupIptables добавляет правила REDIRECT для перенаправления TCP 80/443
+// на указанный порт прозрачного прокси.
+func setupIptables(port int) error {
+	iptMu.Lock()
+	defer iptMu.Unlock()
+
+	if _, err := exec.LookPath("iptables"); err != nil {
+		return fmt.Errorf("%s", i18n.T("proxy.errIptablesNotFound"))
+	}
+
+	portStr := strconv.Itoa(port)
+
+	// Удаляем старые правила (если есть), затем добавляем новые.
+	argsRemove := []string{
+		"-t", "nat", "-D", "OUTPUT",
+		"-p", "tcp", "-m", "multiport", "--dports", "80,443",
+		"-j", "REDIRECT", "--to-ports", portStr,
+	}
+	exec.Command("iptables", argsRemove...).Run() // ignore error
+
+	argsAdd := []string{
+		"-t", "nat", "-A", "OUTPUT",
+		"-p", "tcp", "-m", "multiport", "--dports", "80,443",
+		"-j", "REDIRECT", "--to-ports", portStr,
+	}
+	if out, err := exec.Command("iptables", argsAdd...).CombinedOutput(); err != nil {
+		return fmt.Errorf("%s", i18n.T("proxy.errIptablesSetup", string(out)))
+	}
+
+	iptApplied = true
+	iptPort = portStr
+	return nil
+}
+
+// restoreIptables удаляет правила REDIRECT, добавленные при запуске.
+func restoreIptables() {
+	iptMu.Lock()
+	defer iptMu.Unlock()
+
+	if !iptApplied || iptPort == "" {
+		return
+	}
+
+	args := []string{
+		"-t", "nat", "-D", "OUTPUT",
+		"-p", "tcp", "-m", "multiport", "--dports", "80,443",
+		"-j", "REDIRECT", "--to-ports", iptPort,
+	}
+	exec.Command("iptables", args...).Run()
+
+	iptApplied = false
+	iptPort = ""
 }
 
 func (p *Proxy) serveTransparentConn(conn net.Conn) {

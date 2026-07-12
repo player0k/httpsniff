@@ -7,3 +7,4 @@ httpsniff.exe~
 capture.log
 !cmd/*
 changelogs/*
+build.cmd

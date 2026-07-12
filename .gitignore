@@ -1,0 +1,7 @@
+build/*
+httpsniff.exe
+httpsniff
+ca-key.pem
+ca-cert.pem
+httpsniff.exe~
+capture.log

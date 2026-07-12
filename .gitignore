@@ -6,3 +6,4 @@ ca-cert.pem
 httpsniff.exe~
 capture.log
 !cmd/*
+changelogs/*

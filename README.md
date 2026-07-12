@@ -260,3 +260,11 @@ Known signatures (tried in `--auto`):
 `golang.org/x/net/http2`, `github.com/quic-go/quic-go` (HTTP/3),
 `github.com/andybalholm/brotli`, `github.com/rivo/tview` + `github.com/gdamore/tcell/v2` (TUI),
 `golang.org/x/term`, `golang.org/x/sys`.
+
+### Windows: WinDivert
+
+For transparent capture on Windows, the program requires the **WinDivert** driver:
+[https://github.com/basil00/WinDivert](https://github.com/basil00/WinDivert)
+
+Place `WinDivert.dll` and `WinDivert64.sys` next to the `httpsniff.exe` binary.
+These files can be downloaded from the [WinDivert releases](https://github.com/basil00/WinDivert/releases).

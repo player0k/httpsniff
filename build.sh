@@ -15,6 +15,10 @@ GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o "$OUTPUT_DIR/httpsniff_wi
 echo "→ Linux amd64"
 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o "$OUTPUT_DIR/httpsniff_linux_amd64" ./cmd/httpsniff
 
+# Linux (arm64)
+echo "→ Linux arm64"
+GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o "$OUTPUT_DIR/httpsniff_linux_arm64" ./cmd/httpsniff
+
 # macOS Apple Silicon (arm64)
 echo "→ macOS arm64"
 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "$OUTPUT_DIR/httpsniff_darwin_arm64" ./cmd/httpsniff

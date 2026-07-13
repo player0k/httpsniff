@@ -97,7 +97,8 @@ func New(authority *ca.Authority, filterPID, maxBody int, insecure bool) *Proxy 
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ExpectContinueTimeout: time.Second,
-		ForceAttemptHTTP2:     true, // разрешаем HTTP/2 к вышестоящему серверу
+		ForceAttemptHTTP2:     true,        // разрешаем HTTP/2 к вышестоящему серверу
+		DialContext:           markedDialContext, // SO_MARK на Linux: защита от iptables loop
 	}
 	if insecure {
 		tr.TLSClientConfig = tlsx.InsecureConfig()

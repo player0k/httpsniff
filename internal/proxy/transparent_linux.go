@@ -17,6 +17,9 @@ import (
 
 const soOriginalDst = 80
 
+// markHex — hex-значение SO_MARK для iptables (должно совпадать с proxyMark в mark_linux.go).
+const markHex = "0xdead"
+
 var (
 	iptMu       sync.Mutex
 	iptApplied  bool
@@ -55,7 +58,8 @@ func (p *Proxy) ServeTransparent(addr string, tport int) (func(), error) {
 }
 
 // setupIptables добавляет правила REDIRECT для перенаправления TCP 80/443
-// на указанный порт прозрачного прокси.
+// на указанный порт прозрачного прокси. Исходящие пакеты прокси (с SO_MARK)
+// пропускаются, чтобы не создавать бесконечный цикл.
 func setupIptables(port int) error {
 	iptMu.Lock()
 	defer iptMu.Unlock()
@@ -66,14 +70,25 @@ func setupIptables(port int) error {
 
 	portStr := strconv.Itoa(port)
 
-	// Удаляем старые правила (если есть), затем добавляем новые.
-	argsRemove := []string{
-		"-t", "nat", "-D", "OUTPUT",
+	// Удаляем старые правила (если есть).
+	exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
+		"-m", "mark", "--mark", markHex, "-j", "RETURN").Run()
+	exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
 		"-p", "tcp", "-m", "multiport", "--dports", "80,443",
-		"-j", "REDIRECT", "--to-ports", portStr,
-	}
-	exec.Command("iptables", argsRemove...).Run() // ignore error
+		"-j", "REDIRECT", "--to-ports", portStr).Run()
 
+	// Правило 1: помеченные пакеты прокси (SO_MARK) — пропускаем (RETURN),
+	// чтобы исходящие соединения прокси к апстриму не зациклились.
+	argsMark := []string{
+		"-t", "nat", "-A", "OUTPUT",
+		"-m", "mark", "--mark", markHex,
+		"-j", "RETURN",
+	}
+	if out, err := exec.Command("iptables", argsMark...).CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %s", i18n.T("proxy.errIptablesSetup", ""), string(out))
+	}
+
+	// Правило 2: всё остальное TCP 80/443 — перенаправляем на прокси.
 	argsAdd := []string{
 		"-t", "nat", "-A", "OUTPUT",
 		"-p", "tcp", "-m", "multiport", "--dports", "80,443",
@@ -88,7 +103,7 @@ func setupIptables(port int) error {
 	return nil
 }
 
-// restoreIptables удаляет правила REDIRECT, добавленные при запуске.
+// restoreIptables удаляет правила REDIRECT и mark, добавленные при запуске.
 func restoreIptables() {
 	iptMu.Lock()
 	defer iptMu.Unlock()
@@ -97,12 +112,15 @@ func restoreIptables() {
 		return
 	}
 
-	args := []string{
-		"-t", "nat", "-D", "OUTPUT",
+	// Удаляем правило REDIRECT.
+	exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
 		"-p", "tcp", "-m", "multiport", "--dports", "80,443",
-		"-j", "REDIRECT", "--to-ports", iptPort,
-	}
-	exec.Command("iptables", args...).Run()
+		"-j", "REDIRECT", "--to-ports", iptPort).Run()
+
+	// Удаляем правило mark-exclusion.
+	exec.Command("iptables", "-t", "nat", "-D", "OUTPUT",
+		"-m", "mark", "--mark", markHex,
+		"-j", "RETURN").Run()
 
 	iptApplied = false
 	iptPort = ""

@@ -56,7 +56,7 @@ func main() {
 	}
 	p.SetLogger(iface)
 
-	// Автоустановка CA в системное хранилище и NSS (Firefox/Chrome).
+	// Автоустановка CA в системное хранилище и NSS (Firefox).
 	// Выполняется тихо: ошибки не фатальны, пользователю выводятся подсказки.
 	if cfg.tlsMITM || cfg.transparent {
 		installResult := cainstall.AutoInstall(cfg.caCert)
@@ -68,6 +68,9 @@ func main() {
 		}
 		if installResult.EnvSet {
 			iface.Log(fmt.Sprintf("\033[2m  %s\033[0m\n", installResult.EnvMsg))
+		}
+		for _, h := range installResult.Hints {
+			iface.Log(fmt.Sprintf("\033[1;33m  %s\033[0m\n", h))
 		}
 	}
 

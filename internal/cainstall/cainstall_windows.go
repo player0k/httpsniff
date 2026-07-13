@@ -4,7 +4,6 @@ package cainstall
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 )
 

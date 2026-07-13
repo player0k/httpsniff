@@ -12,20 +12,15 @@ import (
 // чтобы iptables не перенаправлял их обратно на себя (защита от циклов).
 const proxyMark = 0xdead
 
-// markedDialContext — DialContext, устанавливающий SO_MARK на каждый новый сокет.
+// markedDialContext — DialContext, устанавливающий SO_MARK на сокет
+// ДО вызова connect(), чтобы SYN-пакет уже уходил с пометкой и не попадал
+// в правило REDIRECT.
 func markedDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, network, addr)
-	if err != nil {
-		return nil, err
+	d.Control = func(_, _ string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, proxyMark)
+		})
 	}
-	if tc, ok := conn.(*net.TCPConn); ok {
-		raw, err := tc.SyscallConn()
-		if err == nil {
-			raw.Control(func(fd uintptr) {
-				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, proxyMark)
-			})
-		}
-	}
-	return conn, nil
+	return d.DialContext(ctx, network, addr)
 }

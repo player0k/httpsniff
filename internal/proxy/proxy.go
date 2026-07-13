@@ -44,12 +44,49 @@ type Proxy struct {
 	counter    atomic.Uint64
 	logger     Logger
 	logFile    *os.File
-	tlsMITM    bool     // в прозрачном режиме: MITM HTTPS (true) или SNI+проброс (false)
-	mitmFailed sync.Map // host(SNI) -> struct{}: где MITM отклонён, дальше — проброс
+	tlsMITM    bool         // в прозрачном режиме: MITM HTTPS (true) или SNI+проброс (false)
+	mitmFailed mitmFailedMap // host(SNI) -> time.Time: где MITM отклонён, дальше — проброс (с TTL)
 
 	parentsMu    sync.Mutex
 	parentsCache map[int]int
 	parentsAt    time.Time
+}
+
+// mitmFailedMap — потокобезопасный кеш хостов, где MITM был отклонён,
+// с автоматической очисткой записей по TTL (по умолчанию 60 секунд).
+type mitmFailedMap struct {
+	mu      sync.Mutex
+	entries map[string]time.Time
+	ttl     time.Duration
+}
+
+func newMitmFailedMap(ttl time.Duration) mitmFailedMap {
+	return mitmFailedMap{
+		entries: make(map[string]time.Time),
+		ttl:     ttl,
+	}
+}
+
+// store запоминает, что MITM отклонён для данного хоста.
+func (m *mitmFailedMap) store(host string) {
+	m.mu.Lock()
+	m.entries[host] = time.Now()
+	m.mu.Unlock()
+}
+
+// load проверяет, отклонён ли MITM для данного хоста (с учётом TTL).
+func (m *mitmFailedMap) load(host string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.entries[host]
+	if !ok {
+		return false
+	}
+	if time.Since(t) > m.ttl {
+		delete(m.entries, host)
+		return false
+	}
+	return true
 }
 
 // New создаёт прокси, подписывающий MITM-сертификаты через переданный CA.
@@ -71,6 +108,7 @@ func New(authority *ca.Authority, filterPID, maxBody int, insecure bool) *Proxy 
 		insecure:  insecure,
 		transport: tr,
 		h2srv:     &http2.Server{},
+		mitmFailed: newMitmFailedMap(60 * time.Second), // TTL 60 секунд
 	}
 	p.filterPID.Store(int64(filterPID))
 	return p
@@ -217,9 +255,11 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 		sni := peekSNI(br)
 
 		// MITM только если запрошен И этот хост ранее не отвергал наш сертификат.
+		// Кеш имеет TTL: после 60 секунд попытка MITM повторяется (на случай,
+		// если приложение было перезапущено или CA был установлен вручную).
 		mitm := p.tlsMITM
 		if mitm && sni != "" {
-			if _, bad := p.mitmFailed.Load(sni); bad {
+			if p.mitmFailed.load(sni) {
 				mitm = false
 			}
 		}
@@ -244,8 +284,9 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 		if err := tlsConn.Handshake(); err != nil {
 			// Приложение отвергло наш сертификат: показать причину и запомнить
 			// хост, чтобы дальше не рвать соединения, а пробрасывать их.
+			// Через TTL (60 сек) попытка MITM повторится автоматически.
 			if sni != "" {
-				p.mitmFailed.Store(sni, struct{}{})
+				p.mitmFailed.store(sni)
 			}
 			if capture {
 				host := sni

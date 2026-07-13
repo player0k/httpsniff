@@ -16,6 +16,7 @@ import (
 	"golang.org/x/term"
 
 	"httpsniff/internal/ca"
+	"httpsniff/internal/cainstall"
 	"httpsniff/internal/i18n"
 	"httpsniff/internal/proxy"
 	"httpsniff/internal/sysproxy"
@@ -54,6 +55,21 @@ func main() {
 		iface = ui.NewPlain(p)
 	}
 	p.SetLogger(iface)
+
+	// Автоустановка CA в системное хранилище и NSS (Firefox/Chrome).
+	// Выполняется тихо: ошибки не фатальны, пользователю выводятся подсказки.
+	if cfg.tlsMITM || cfg.transparent {
+		installResult := cainstall.AutoInstall(cfg.caCert)
+		if installResult.SystemOK {
+			iface.Log(fmt.Sprintf("\033[1;32m✓ %s\033[0m\n", installResult.SystemMsg))
+		}
+		if installResult.NSSOK {
+			iface.Log(fmt.Sprintf("\033[1;32m✓ %s\033[0m\n", installResult.NSSMsg))
+		}
+		if installResult.EnvSet {
+			iface.Log(fmt.Sprintf("\033[2m  %s\033[0m\n", installResult.EnvMsg))
+		}
+	}
 
 	var cleanups []func()
 

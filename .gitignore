@@ -8,3 +8,6 @@ capture.log
 !cmd/*
 changelogs/*
 build.cmd
+*.log
+.idea/*
+.vscode/*

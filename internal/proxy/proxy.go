@@ -101,18 +101,18 @@ func New(authority *ca.Authority, filterPID, maxBody int, insecure bool) *Proxy 
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ExpectContinueTimeout: time.Second,
-		ForceAttemptHTTP2:     true,        // разрешаем HTTP/2 к вышестоящему серверу
+		ForceAttemptHTTP2:     true,              // разрешаем HTTP/2 к вышестоящему серверу
 		DialContext:           markedDialContext, // SO_MARK на Linux: защита от iptables loop
 	}
 	if insecure {
 		tr.TLSClientConfig = tlsx.InsecureConfig()
 	}
 	p := &Proxy{
-		ca:        authority,
-		maxBody:   maxBody,
-		insecure:  insecure,
-		transport: tr,
-		h2srv:     &http2.Server{},
+		ca:         authority,
+		maxBody:    maxBody,
+		insecure:   insecure,
+		transport:  tr,
+		h2srv:      &http2.Server{},
 		mitmFailed: newMitmFailedMap(60 * time.Second), // TTL 60 секунд
 	}
 	p.filterPID.Store(int64(filterPID))
@@ -340,13 +340,13 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 		// MITM: ReplayConn сначала отдаёт прочитанный ClientHello,
 		// затем читает из оригинального conn — без bufio, без потери данных.
 		// NewReplayNoClose гарантирует, что tlsConn.Close() НЕ закроет
-		// нижележащий conn — если рукопожатие провалится, мы сможем
-		// переключиться на проброс по тому же соединению.
+		// нижележащий conn. Это нужно для корректного завершения TLS-обёртки
+		// без неожиданного закрытия исходного сокета.
 		rc := tlsx.NewReplayNoClose(conn, clientHello)
 		tlsConn := tlsx.Server(rc, p.ca.GetCertificate)
 		if err := tlsConn.Handshake(); err != nil {
 			// Приложение отвергло наш сертификат: показать причину и запомнить
-			// хост, чтобы дальше не рвать соединения, а пробрасывать их.
+			// хост, чтобы дальше не рвать текущие соединения попыткой MITM.
 			// Через TTL (60 сек) попытка MITM повторится автоматически.
 			tlsConn.Close() // close_notify + закрытие обёртки; conn остаётся живым
 			if sni != "" {
@@ -362,15 +362,10 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 			if p.onMITMRejected != nil {
 				p.onMITMRejected(pid, host)
 			}
-			// Fallback: пробрасываем ClientHello на реальный сервер.
-			// conn ещё жив (NoClose), клиент получит настоящий сертификат.
-			upstream, dialErr := markedDialContext(context.Background(), "tcp", origDst)
-			if dialErr != nil {
-				return
-			}
-			defer upstream.Close()
-			upstream.Write(clientHello)
-			tunnel(conn, upstream)
+			// Не пытаемся делать fallback на том же соединении:
+			// после reject часть TLS-потока уже может быть прочитана/повреждена,
+			// что приводит к "tls: bad record MAC". Следующее подключение к
+			// этому хосту пойдёт в passthrough по кешу mitmFailed.
 			return
 		}
 		host := tlsConn.ConnectionState().ServerName

@@ -285,15 +285,26 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 	defer conn.Close()
 	capture := p.matches(pid)
 
-	br := bufio.NewReaderSize(conn, 16384)
-	head, err := br.Peek(1)
+	// Читаем первые 5 байт, чтобы определить протокол, не потребляя данные
+	// без необходимости (bufio + peek может давать сбой при взаимодействии с TLS).
+	head := make([]byte, 5)
+	n, err := io.ReadAtLeast(conn, head, 1)
 	if err != nil {
 		return
 	}
-	wrapped := &bufConn{Conn: conn, r: br}
 
 	if head[0] == 0x16 { // TLS record: Handshake
-		sni := peekSNI(br)
+		// Дочитываем полный ClientHello прямо из соединения.
+		recLen := int(head[3])<<8 | int(head[4])
+		total := 5 + recLen
+		clientHello := make([]byte, total)
+		copy(clientHello, head[:n])
+		if n < total {
+			if _, err := io.ReadFull(conn, clientHello[n:]); err != nil {
+				return
+			}
+		}
+		sni, _ := tlsx.ParseClientHelloSNI(clientHello)
 
 		// MITM только если запрошен И этот хост ранее не отвергал наш сертификат.
 		// Кеш имеет TTL: после 60 секунд попытка MITM повторяется (на случай,
@@ -306,8 +317,7 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 		}
 
 		if !mitm {
-			// Проброс: вытащить SNI и прозрачно передать трафик, не ломая
-			// соединение (клиент может не доверять нашему CA — Flutter/Dart).
+			// Проброс: отправить ClientHello апстриму и прозрачно передать трафик.
 			if capture {
 				p.emit(render.TLSPassthrough(p.nextID(), pid, sni, origDst))
 			}
@@ -316,12 +326,15 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 				return
 			}
 			defer upstream.Close()
-			tunnel(wrapped, upstream)
+			upstream.Write(clientHello)
+			tunnel(conn, upstream)
 			return
 		}
 
-		// MITM (для приложений, доверяющих нашему CA).
-		tlsConn := tlsx.Server(wrapped, p.ca.GetCertificate)
+		// MITM: ReplayConn сначала отдаёт прочитанный ClientHello,
+		// затем читает из оригинального conn — без bufio, без потери данных.
+		rc := tlsx.NewReplayConn(conn, clientHello)
+		tlsConn := tlsx.Server(rc, p.ca.GetCertificate)
 		if err := tlsConn.Handshake(); err != nil {
 			// Приложение отвергло наш сертификат: показать причину и запомнить
 			// хост, чтобы дальше не рвать соединения, а пробрасывать их.
@@ -350,7 +363,9 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 		return
 	}
 
-	// Открытый HTTP: хост берём из заголовка Host, порт — из origDst.
+	// Открытый HTTP: восстанавливаем прочитанные байты через MultiReader.
+	reader := io.MultiReader(bytes.NewReader(head[:n]), conn)
+	br := bufio.NewReader(reader)
 	req, err := http.ReadRequest(br)
 	if err != nil {
 		return
@@ -363,10 +378,10 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 			req.URL.Host = origDst
 		}
 	}
-	if !p.roundtripH1(wrapped, req, "http", req.URL.Host, capture, pid) {
+	if !p.roundtripH1(conn, req, "http", req.URL.Host, capture, pid) {
 		return
 	}
-	p.serveH1(wrapped, br, "http", req.URL.Host, capture, pid)
+	p.serveH1(conn, br, "http", req.URL.Host, capture, pid)
 }
 
 // serveTLS обслуживает уже установленное TLS-соединение: HTTP/2 или HTTP/1.x.
@@ -513,21 +528,6 @@ func (p *Proxy) emit(block string) {
 
 func (p *Proxy) nextID() uint64 { return p.counter.Add(1) }
 
-// peekSNI без потребления байт извлекает SNI из ClientHello.
-func peekSNI(br *bufio.Reader) string {
-	h5, err := br.Peek(5)
-	if err != nil || h5[0] != 0x16 {
-		return ""
-	}
-	recLen := int(h5[3])<<8 | int(h5[4])
-	full, err := br.Peek(5 + recLen)
-	if err != nil {
-		full, _ = br.Peek(br.Buffered())
-	}
-	host, _ := tlsx.ParseClientHelloSNI(full)
-	return host
-}
-
 // tunnel двунаправленно копирует данные между двумя соединениями.
 func tunnel(a, b net.Conn) {
 	done := make(chan struct{}, 2)
@@ -551,14 +551,6 @@ func writeGatewayError(w io.Writer) {
 	}
 	resp.Write(w)
 }
-
-// bufConn — net.Conn, у которого Read идёт через буфер (для «подсмотренных» байт).
-type bufConn struct {
-	net.Conn
-	r *bufio.Reader
-}
-
-func (c *bufConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 
 var hopHeaders = map[string]bool{
 	"connection":          true,

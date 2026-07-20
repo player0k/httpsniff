@@ -253,7 +253,7 @@ func (p *Proxy) handleConnect(client net.Conn, host string, capture bool, pid in
 	sni := hostOnly(host)
 	// Без захвата или хост ранее отверг MITM — сквозной TCP-туннель.
 	if !capture || (sni != "" && p.mitmFailed.load(sni)) {
-		upstream, err := net.Dial("tcp", host)
+		upstream, err := markedDialContext(context.Background(), "tcp", host)
 		if err != nil {
 			return
 		}
@@ -294,6 +294,12 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 	}
 
 	if head[0] == 0x16 { // TLS record: Handshake
+		if n < 5 {
+			if _, err := io.ReadFull(conn, head[n:5]); err != nil {
+				return
+			}
+			n = 5
+		}
 		// Дочитываем полный ClientHello прямо из соединения.
 		recLen := int(head[3])<<8 | int(head[4])
 		total := 5 + recLen
@@ -321,7 +327,7 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 			if capture {
 				p.emit(render.TLSPassthrough(p.nextID(), pid, sni, origDst))
 			}
-			upstream, err := net.Dial("tcp", origDst)
+			upstream, err := markedDialContext(context.Background(), "tcp", origDst)
 			if err != nil {
 				return
 			}
@@ -333,13 +339,16 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 
 		// MITM: ReplayConn сначала отдаёт прочитанный ClientHello,
 		// затем читает из оригинального conn — без bufio, без потери данных.
-		rc := tlsx.NewReplayConn(conn, clientHello)
+		// NewReplayNoClose гарантирует, что tlsConn.Close() НЕ закроет
+		// нижележащий conn — если рукопожатие провалится, мы сможем
+		// переключиться на проброс по тому же соединению.
+		rc := tlsx.NewReplayNoClose(conn, clientHello)
 		tlsConn := tlsx.Server(rc, p.ca.GetCertificate)
 		if err := tlsConn.Handshake(); err != nil {
 			// Приложение отвергло наш сертификат: показать причину и запомнить
 			// хост, чтобы дальше не рвать соединения, а пробрасывать их.
 			// Через TTL (60 сек) попытка MITM повторится автоматически.
-			tlsConn.Close()
+			tlsConn.Close() // close_notify + закрытие обёртки; conn остаётся живым
 			if sni != "" {
 				p.mitmFailed.store(sni)
 			}
@@ -353,6 +362,15 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 			if p.onMITMRejected != nil {
 				p.onMITMRejected(pid, host)
 			}
+			// Fallback: пробрасываем ClientHello на реальный сервер.
+			// conn ещё жив (NoClose), клиент получит настоящий сертификат.
+			upstream, dialErr := markedDialContext(context.Background(), "tcp", origDst)
+			if dialErr != nil {
+				return
+			}
+			defer upstream.Close()
+			upstream.Write(clientHello)
+			tunnel(conn, upstream)
 			return
 		}
 		host := tlsConn.ConnectionState().ServerName

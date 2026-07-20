@@ -56,6 +56,16 @@ func ReadClientHello(conn net.Conn) (raw []byte, sni string, err error) {
 	return raw, sni, nil
 }
 
+// noCloseConn оборачивает net.Conn так, что Close() не закрывает нижележащее
+// соединение. Это позволяет вызывать tls.Conn.Close() (который шлёт close_notify
+// и закрывает обёртку), не убивая реальный TCP-сокет — нужно для fallback
+// с MITM на passthrough в рамках одного соединения.
+type noCloseConn struct {
+	net.Conn
+}
+
+func (c noCloseConn) Close() error { return nil }
+
 // ReplayConn — обёртка над net.Conn, которая перед первым Read отдаёт
 // сохранённые байты (например, заранее прочитанный ClientHello),
 // а затем читает из оригинального соединения.
@@ -68,6 +78,15 @@ func NewReplayConn(conn net.Conn, replay []byte) *ReplayConn {
 	r := make([]byte, len(replay))
 	copy(r, replay)
 	return &ReplayConn{Conn: conn, replay: r}
+}
+
+// NewReplayNoClose создаёт ReplayConn, у которого Close() не закрывает
+// нижележащий conn. Используется при попытке MITM: если рукопожатие провалится,
+// conn остаётся живым для fallback-проброса.
+func NewReplayNoClose(conn net.Conn, replay []byte) *ReplayConn {
+	r := make([]byte, len(replay))
+	copy(r, replay)
+	return &ReplayConn{Conn: noCloseConn{conn}, replay: r}
 }
 
 func (c *ReplayConn) Read(p []byte) (int, error) {

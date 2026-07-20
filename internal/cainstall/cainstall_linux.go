@@ -3,10 +3,12 @@
 package cainstall
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // installSystem устанавливает CA в системное хранилище Linux
@@ -35,7 +37,6 @@ func installSystem(certPath string) (bool, string) {
 }
 
 func installDebian(certPath, dest string) (bool, string) {
-	// Копируем сертификат
 	src, err := os.ReadFile(certPath)
 	if err != nil {
 		return false, fmt.Sprintf("чтение CA: %v", err)
@@ -44,12 +45,48 @@ func installDebian(certPath, dest string) (bool, string) {
 		return false, fmt.Sprintf("запись %s: %v (нужен sudo?)", dest, err)
 	}
 
-	// update-ca-certificates
-	out, err := exec.Command("update-ca-certificates").CombinedOutput()
-	if err != nil {
-		return false, fmt.Sprintf("update-ca-certificates: %s: %v", string(out), err)
+	// update-ca-certificates сам находит .crt в /usr/local/share/ca-certificates/
+	// и добавляет в бандл. Не требует записи в ca-certificates.conf.
+	exec.Command("update-ca-certificates").Run() // ошибки не фатальны — есть фолбэк
+
+	// Фолбэк: если бандл всё ещё не содержит наш сертификат — дописываем напрямую.
+	bundle := "/etc/ssl/certs/ca-certificates.crt"
+	if !certInBundle(bundle, "httpsniff") {
+		if err := appendFile(bundle, src); err != nil {
+			return true, fmt.Sprintf("CA скопирован в %s; обновите бандл: sudo update-ca-certificates", dest)
+		}
 	}
+
 	return true, fmt.Sprintf("CA установлен в %s (Debian/Ubuntu)", dest)
+}
+
+// certInBundle проверяет, содержит ли бандл сертификатов строку-маркер.
+func certInBundle(bundlePath, marker string) bool {
+	f, err := os.Open(bundlePath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// appendFile дописывает содержимое в конец файла.
+func appendFile(dst string, data []byte) error {
+	f, err := os.OpenFile(dst, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.Write(data)
+	return err
 }
 
 func installRHEL(certPath, dest string) (bool, string) {

@@ -162,11 +162,13 @@ func (p *Proxy) FilterPID() int { return int(p.filterPID.Load()) }
 func (p *Proxy) SetFilterPID(pid int) { p.filterPID.Store(int64(pid)) }
 
 // matches сообщает, нужно ли перехватывать соединение процесса pid: истина, если
-// фильтр не задан, либо pid равен целевому, либо является его потомком (дерево).
+// фильтр не задан (0 = все), либо pid равен целевому, либо является его потомком.
+// В прозрачном режиме PID может быть -1 (не определён); при активном фильтре
+// пропускаем, при filterPID==0 считаем что процесс подходит (match).
 func (p *Proxy) matches(pid int) bool {
 	root := p.FilterPID()
 	if root == 0 {
-		return true
+		return pid != 0 // -1 (не определён) — пытаемся; 0 (idle) — нет
 	}
 	if pid <= 0 {
 		return false
@@ -262,6 +264,7 @@ func (p *Proxy) handleConnect(client net.Conn, host string, capture bool, pid in
 	tlsConn := tlsx.Server(client, p.ca.GetCertificate)
 	if err := tlsConn.Handshake(); err != nil {
 		// Клиент не принял MITM-сертификат (нет доверия к CA / pinning).
+		tlsConn.Close()
 		if sni != "" {
 			p.mitmFailed.store(sni)
 		}
@@ -323,6 +326,7 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 			// Приложение отвергло наш сертификат: показать причину и запомнить
 			// хост, чтобы дальше не рвать соединения, а пробрасывать их.
 			// Через TTL (60 сек) попытка MITM повторится автоматически.
+			tlsConn.Close()
 			if sni != "" {
 				p.mitmFailed.store(sni)
 			}

@@ -10,7 +10,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"httpsniff/internal/i18n"
@@ -34,6 +36,8 @@ var (
 	procCloseHandle          = kernel32.NewProc("CloseHandle")
 	procModule32FirstW       = kernel32.NewProc("Module32FirstW")
 	procModule32NextW        = kernel32.NewProc("Module32NextW")
+	procProcess32FirstW      = kernel32.NewProc("Process32FirstW")
+	procProcess32NextW       = kernel32.NewProc("Process32NextW")
 	procOpenProcess          = kernel32.NewProc("OpenProcess")
 	procReadProcessMemory    = kernel32.NewProc("ReadProcessMemory")
 	procWriteProcessMem      = kernel32.NewProc("WriteProcessMemory")
@@ -47,6 +51,7 @@ const (
 
 	th32csSnapModule   = 0x00000008
 	th32csSnapModule32 = 0x00000010
+	th32csSnapProcess  = 0x00000002
 
 	processVMRead    = 0x0010
 	processVMWrite   = 0x0020
@@ -67,6 +72,20 @@ type moduleEntry32 struct {
 	HModule      uintptr
 	Module       [256]uint16
 	ExePath      [260]uint16
+}
+
+// processEntry32 — PROCESSENTRY32W (поля после szExeFile не нужны).
+type processEntry32 struct {
+	Size            uint32
+	CntUsage        uint32
+	ProcessID       uint32
+	DefaultHeapID   uintptr
+	ModuleID        uint32
+	CntThreads      uint32
+	ParentProcessID uint32
+	PriClassBase    int32
+	Flags           uint32
+	ExeFile         [260]uint16
 }
 
 // Пролог ssl_crypto_x509_session_verify_cert_chain в flutter_windows.dll (x64).
@@ -116,6 +135,23 @@ var patchBytes = []byte{0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3}
 // исправить такой процесс на возврат 1 без перезапуска приложения.
 const altSig = "31 C0 C3 56 41 55 41 54 56 57 53 48 83 EC 40 48 89 CF 48 8B 05 ?? ?? ?? ??"
 
+// Result — итог попытки unpin для одного PID.
+type Result struct {
+	// Applied — патч записан в память процесса.
+	Applied bool
+	// AlreadyOK — проверка TLS уже отключена (повторный патч не нужен).
+	AlreadyOK bool
+	// Skipped — не Flutter (нет flutter_windows.dll) или нечего патчить.
+	Skipped bool
+	// Message — краткое описание для лога.
+	Message string
+	// Err — системная ошибка (OpenProcess, запись памяти и т.п.).
+	Err error
+}
+
+// Supported сообщает, доступен ли unpin на этой платформе.
+func Supported() bool { return true }
+
 // Run исполняет подкоманду unpin: поиск (dry-run) или применение патча.
 func Run(args []string) {
 	fs := flag.NewFlagSet("unpin", flag.ExitOnError)
@@ -164,6 +200,282 @@ func Run(args []string) {
 	}
 
 	runManual(proc, mem, base, pattern, *apply, *dump)
+}
+
+// Apply пытается отключить проверку TLS в процессе pid (режим --auto --apply).
+// Безопасно вызывать для любого PID: не-Flutter процессы помечаются Skipped.
+func Apply(pid int) Result {
+	if pid <= 0 {
+		return Result{Skipped: true, Message: "invalid pid"}
+	}
+
+	base, size, err := findModule(pid, "flutter_windows.dll")
+	if err != nil {
+		return Result{Skipped: true, Message: fmt.Sprintf("not Flutter (pid %d)", pid)}
+	}
+
+	proc, err := openProcess(pid, true)
+	if err != nil {
+		return Result{Err: err, Message: fmt.Sprintf("OpenProcess(%d): %v", pid, err)}
+	}
+	defer procCloseHandle.Call(proc)
+
+	mem := readModule(proc, base, size)
+
+	// Уже пропатчено нами (mov eax,1; ret в начале известной функции)?
+	if addr, ok := findAlreadyGood(mem, base); ok {
+		return Result{
+			AlreadyOK: true,
+			Message:   fmt.Sprintf("pid %d: TLS verify already disabled @ 0x%X", pid, addr),
+		}
+	}
+
+	// Исправляем ошибочный старый патч (return 0).
+	if alt, e := parseSig(altSig); e == nil {
+		if am := scanAll(mem, alt); len(am) == 1 {
+			addr := base + uintptr(am[0])
+			if err := patch(proc, addr, patchBytes); err != nil {
+				return Result{Err: err, Message: fmt.Sprintf("pid %d: patch failed: %v", pid, err)}
+			}
+			return Result{
+				Applied: true,
+				Message: fmt.Sprintf("pid %d: corrected old patch → TLS verify disabled", pid),
+			}
+		}
+	}
+
+	for _, entry := range knownSigs {
+		pattern, err := parseSig(entry.sig)
+		if err != nil {
+			continue
+		}
+		matches := scanAll(mem, pattern)
+		if len(matches) != 1 {
+			continue
+		}
+		addr := base + uintptr(matches[0])
+		if err := patch(proc, addr, patchBytes); err != nil {
+			return Result{Err: err, Message: fmt.Sprintf("pid %d: patch failed: %v", pid, err)}
+		}
+		return Result{
+			Applied: true,
+			Message: fmt.Sprintf("pid %d: unpinned (%s) @ 0x%X", pid, entry.name, addr),
+		}
+	}
+
+	return Result{
+		Skipped: true,
+		Message: fmt.Sprintf("pid %d: flutter_windows.dll present, but no known signature", pid),
+	}
+}
+
+// findAlreadyGood ищет уже применённый успешный патч (mov eax,1; ret) на месте
+// известных прологов: первые 3 байта заменены, остаток сигнатуры узнаваем.
+func findAlreadyGood(mem []byte, base uintptr) (uintptr, bool) {
+	// Ищем наш patchBytes, за которым идёт хвост, похожий на flutter-пролог
+	// (после ret обычно идут байты исходной функции — но мы перезаписали только 6 байт).
+	// Практичный критерий: patchBytes встречается ровно там, где был knownSig
+	// (сравниваем байты [6:] с knownSig[6:]).
+	for _, entry := range knownSigs {
+		pat, err := parseSig(entry.sig)
+		if err != nil || len(pat) < len(patchBytes)+4 {
+			continue
+		}
+		// Собираем паттерн: patchBytes + rest of original with wildcards for first 6.
+		combined := make([]int, len(pat))
+		for i := range pat {
+			if i < len(patchBytes) {
+				combined[i] = int(patchBytes[i])
+			} else {
+				combined[i] = pat[i]
+			}
+		}
+		if m := scanAll(mem, combined); len(m) == 1 {
+			return base + uintptr(m[0]), true
+		}
+	}
+	return 0, false
+}
+
+// Watcher периодически ищет процессы с flutter_windows.dll и применяет unpin.
+type Watcher struct {
+	log       func(string)
+	onPatched func(pid int)
+	interval  time.Duration
+
+	mu       sync.Mutex
+	patched  map[int]struct{} // успешно / already OK
+	backoff  map[int]time.Time // когда снова трогать «не Flutter / ошибка»
+	stopCh   chan struct{}
+	stopped  sync.Once
+}
+
+// StartWatcher запускает фоновый обход процессов.
+// log и onPatched могут быть nil. Остановка — через Watcher.Stop.
+func StartWatcher(log func(string), onPatched func(pid int)) *Watcher {
+	w := &Watcher{
+		log:       log,
+		onPatched: onPatched,
+		interval:  2 * time.Second,
+		patched:   make(map[int]struct{}),
+		backoff:   make(map[int]time.Time),
+		stopCh:    make(chan struct{}),
+	}
+	if w.log == nil {
+		w.log = func(string) {}
+	}
+	go w.loop()
+	return w
+}
+
+// Stop останавливает watcher.
+func (w *Watcher) Stop() {
+	w.stopped.Do(func() { close(w.stopCh) })
+}
+
+// TryPID пытается unpin для конкретного PID (например, после MITM-reject).
+// Повторно не трогает уже успешно пропатченные PID.
+func (w *Watcher) TryPID(pid int) Result {
+	if w == nil || pid <= 0 {
+		return Apply(pid)
+	}
+	w.mu.Lock()
+	if _, ok := w.patched[pid]; ok {
+		w.mu.Unlock()
+		return Result{AlreadyOK: true, Message: fmt.Sprintf("pid %d: already unpinned", pid)}
+	}
+	w.mu.Unlock()
+
+	res := Apply(pid)
+	w.remember(pid, res)
+	if res.Applied || res.AlreadyOK {
+		if w.onPatched != nil && res.Applied {
+			w.onPatched(pid)
+		}
+		if res.Applied {
+			w.log(fmt.Sprintf("\033[1;32m✓ auto-unpin: %s\033[0m\n", res.Message))
+		}
+	}
+	return res
+}
+
+func (w *Watcher) loop() {
+	// Первый проход сразу — подхватить уже запущенные Flutter-приложения.
+	w.scanOnce()
+	t := time.NewTicker(w.interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-w.stopCh:
+			return
+		case <-t.C:
+			w.scanOnce()
+		}
+	}
+}
+
+func (w *Watcher) scanOnce() {
+	pids, err := listPIDs()
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, pid := range pids {
+		w.mu.Lock()
+		if _, ok := w.patched[pid]; ok {
+			w.mu.Unlock()
+			continue
+		}
+		if until, ok := w.backoff[pid]; ok && now.Before(until) {
+			w.mu.Unlock()
+			continue
+		}
+		w.mu.Unlock()
+
+		// Быстрая проверка: есть ли flutter_windows.dll.
+		if _, _, err := findModule(pid, "flutter_windows.dll"); err != nil {
+			w.mu.Lock()
+			w.backoff[pid] = now.Add(30 * time.Second)
+			w.mu.Unlock()
+			continue
+		}
+
+		res := Apply(pid)
+		w.remember(pid, res)
+		if res.Applied {
+			w.log(fmt.Sprintf("\033[1;32m✓ auto-unpin: %s\033[0m\n", res.Message))
+			if w.onPatched != nil {
+				w.onPatched(pid)
+			}
+		} else if res.AlreadyOK {
+			// тихо
+		} else if res.Err != nil {
+			w.log(fmt.Sprintf("\033[1;33m⚠ auto-unpin pid %d: %v\033[0m\n", pid, res.Err))
+		}
+	}
+
+	// Чистим backoff/patched для умерших процессов.
+	w.gc(pids)
+}
+
+func (w *Watcher) remember(pid int, res Result) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch {
+	case res.Applied, res.AlreadyOK:
+		w.patched[pid] = struct{}{}
+		delete(w.backoff, pid)
+	case res.Skipped:
+		// dll есть, но сигнатура не найдена — не долбим каждую секунду;
+		// или dll нет (уже обработано выше). Повторим через минуту
+		// (обновление Flutter / поздняя загрузка).
+		w.backoff[pid] = time.Now().Add(60 * time.Second)
+	case res.Err != nil:
+		w.backoff[pid] = time.Now().Add(15 * time.Second)
+	}
+}
+
+func (w *Watcher) gc(live []int) {
+	alive := make(map[int]struct{}, len(live))
+	for _, p := range live {
+		alive[p] = struct{}{}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for pid := range w.patched {
+		if _, ok := alive[pid]; !ok {
+			delete(w.patched, pid)
+		}
+	}
+	for pid := range w.backoff {
+		if _, ok := alive[pid]; !ok {
+			delete(w.backoff, pid)
+		}
+	}
+}
+
+func listPIDs() ([]int, error) {
+	snap, _, err := procCreateToolhelp32Snap.Call(uintptr(th32csSnapProcess), 0)
+	if snap == 0 || snap == invalidHandle {
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("CreateToolhelp32Snapshot(process) failed")
+	}
+	defer procCloseHandle.Call(snap)
+
+	var pe processEntry32
+	pe.Size = uint32(unsafe.Sizeof(pe))
+	r, _, _ := procProcess32FirstW.Call(snap, uintptr(unsafe.Pointer(&pe)))
+	var out []int
+	for r != 0 {
+		pid := int(pe.ProcessID)
+		if pid > 0 {
+			out = append(out, pid)
+		}
+		r, _, _ = procProcess32NextW.Call(snap, uintptr(unsafe.Pointer(&pe)))
+	}
+	return out, nil
 }
 
 // runAuto выполняет автоматический перебор известных сигнатур.

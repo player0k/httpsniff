@@ -170,6 +170,7 @@ Flags:
 | `--log-file` | — | duplicate capture to file (without ANSI colors) |
 | `--no-tui` | `false` | disable TUI, stream log output |
 | `--tls-mitm` | `false` | in transparent mode, decrypt HTTPS (MITM); otherwise SNI host + passthrough |
+| `--auto-unpin` | `true` | with `--tls-mitm`: auto-patch new Flutter processes (Windows only) |
 | `--lang` | — | interface language (default: system language) |
 
 Subcommands: `httpsniff restore` — restore proxy settings; `httpsniff winconfig …` — AppContainer loopback exceptions (Windows only).
@@ -286,13 +287,27 @@ the connection. For them, in transparent mode by default (`--tls-mitm=false`) HT
 **is not decrypted**, but transparently passed through to the server; the log shows
 **SNI host** — you can see where the app connects without breaking it.
 
-**Full Flutter decryption (`unpin`).** If the application is not in AppContainer
-sandbox (normally MSIX-packaged Flutter apps are not), you can disable TLS verification
-with a memory patch: find the certificate chain verification function
+**Full Flutter decryption (`unpin` / `--auto-unpin`).** If the application is not in
+AppContainer sandbox (normally MSIX-packaged Flutter apps are not), you can disable TLS
+verification with a memory patch: find the certificate chain verification function
 (`ssl_crypto_x509_session_verify_cert_chain`) in `flutter_windows.dll` by its prologue
 and replace it with "always succeed" (`mov eax,1; ret`). Technique from Frida scripts
 [Anof-cyber](https://github.com/Anof-cyber/Flutter-Windows) /
 [NVISO](https://github.com/NVISOsecurity/disable-flutter-tls-verification), but without Frida.
+
+**Automatic (recommended).** With `--tls-mitm`, `--auto-unpin` is **on by default**
+(Windows only). httpsniff watches for new processes that load `flutter_windows.dll`
+and patches them; on MITM rejection it also tries the rejecting PID immediately.
+After a successful patch, MITM is retried for previously failed hosts.
+
+```sh
+# Capture + decrypt; Flutter apps started later are unpinned automatically:
+httpsniff --transparent --tls-mitm
+# Disable auto-unpin if you only want manual control:
+httpsniff --transparent --tls-mitm --auto-unpin=false
+```
+
+**Manual `unpin` subcommand** (same patch, one-shot):
 
 ```sh
 # 1) Check that the function is found (safe, read-only):
@@ -305,6 +320,10 @@ httpsniff unpin --pid <PID> --apply --sig "41 57 41 56 41 55 41 54 56 57 53 48 8
 httpsniff --transparent --pid <PID> --tls-mitm --system-proxy=false
 ```
 
+> **Note:** `unpin` is **Flutter-only** (looks for `flutter_windows.dll`). Tools like
+> `curl`, browsers, and most native apps use the system CA store — install the CA
+> (done automatically on start) instead of unpinning.
+
 **`unpin` flags:**
 
 | Flag | Description |
@@ -315,7 +334,7 @@ httpsniff --transparent --pid <PID> --tls-mitm --system-proxy=false
 | `--sig` | verification function signature (hex, `??` — mask) |
 | `--dump` | show function bytes before/after patch (diagnostics) |
 
-Known signatures (tried in `--auto`):
+Known signatures (tried in `--auto` / auto-unpin):
 - `flutter-3.x` — standard (Flutter 3.x, BoringSSL)
 - `flutter-3.16+` — new BoringSSL
 - `flutter-3.19+` — updated prologue

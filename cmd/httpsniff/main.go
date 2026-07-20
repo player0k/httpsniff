@@ -76,6 +76,29 @@ func main() {
 
 	var cleanups []func()
 
+	// Auto-unpin: фоновый обход новых процессов с flutter_windows.dll (Windows)
+	// и мгновенная попытка при MITM-reject. Для curl/браузеров не нужен —
+	// им достаточно CA в системном store.
+	if cfg.autoUnpin && cfg.tlsMITM && unpin.Supported() {
+		w := unpin.StartWatcher(iface.Log, func(pid int) {
+			// После успешного патча снова пробуем MITM по всем хостам.
+			p.ClearMITMFailed()
+		})
+		cleanups = append(cleanups, w.Stop)
+		p.SetOnMITMRejected(func(pid int, host string) {
+			res := w.TryPID(pid)
+			if res.Applied {
+				p.ClearMITMFailed()
+				return
+			}
+			// Не Flutter: подсказка про CA, а не про unpin.
+			if res.Skipped && pid > 0 {
+				iface.Log(fmt.Sprintf("\033[2m  %s\033[0m\n", i18n.T("log.mitmHintCA", pid)))
+			}
+		})
+		iface.Log(fmt.Sprintf("\033[2m  %s\033[0m\n", i18n.T("main.autoUnpinOn")))
+	}
+
 	// Файл лога.
 	if cfg.logFile != "" {
 		f, err := os.OpenFile(cfg.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -204,6 +227,7 @@ type config struct {
 	logFile     string
 	noTUI       bool
 	tlsMITM     bool
+	autoUnpin   bool
 	lang        string
 }
 
@@ -224,7 +248,10 @@ func parseFlags() config {
 		logFilePath = flag.String("log-file", "", i18n.T("flag.logFile"))
 		noTUI       = flag.Bool("no-tui", false, i18n.T("flag.noTUI"))
 		tlsMITM     = flag.Bool("tls-mitm", false, i18n.T("flag.tlsMITM"))
-		lang        = flag.String("lang", "", i18n.T("flag.lang"))
+		// По умолчанию включён: при --tls-mitm на Windows автоматически
+		// патчит новые Flutter-процессы (curl/браузерам не нужен — им CA).
+		autoUnpin = flag.Bool("auto-unpin", true, i18n.T("flag.autoUnpin"))
+		lang      = flag.String("lang", "", i18n.T("flag.lang"))
 	)
 	flag.Usage = usage
 	flag.Parse()
@@ -249,6 +276,7 @@ func parseFlags() config {
 		logFile:     *logFilePath,
 		noTUI:       *noTUI,
 		tlsMITM:     *tlsMITM,
+		autoUnpin:   *autoUnpin,
 		lang:        *lang,
 	}
 }

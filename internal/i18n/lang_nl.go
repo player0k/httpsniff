@@ -17,6 +17,7 @@ var nl = map[string]string{
 	"flag.logFile":         "onderschepping ook naar een bestand schrijven (zonder ANSI-kleuren)",
 	"flag.noTUI":           "de TUI uitschakelen, log als stream tonen",
 	"flag.tlsMITM":         "in transparante modus HTTPS ontsleutelen (MITM); anders alleen SNI-host + doorsturen",
+	"flag.autoUnpin":       "met --tls-mitm: TLS-verificatie van nieuwe Flutter-processen auto uitschakelen (alleen Windows; standaard aan)",
 	"flag.lang":            "interfacetaal: en, ru, fr, de, nl, es, pt (standaard: systeem)",
 
 	"main.errCAInit":       "Fout bij initialiseren van CA: %v",
@@ -27,6 +28,7 @@ var nl = map[string]string{
 	"main.warnQUIC":        "⚠ QUIC-onderscheppen niet beschikbaar: %v",
 	"main.shutdown":        "Afsluiten, instellingen worden hersteld…",
 	"main.restored":        "Systeemproxy-instellingen hersteld.",
+	"main.autoUnpinOn":     "auto-unpin: nieuwe Flutter-processen worden bewaakt (Windows)",
 
 	"usage.header": `httpsniff — HTTP/HTTPS-verkeersonderschepper (MITM-proxy) voor Windows, Linux en macOS
 
@@ -85,7 +87,8 @@ Windows 11 — toegang van AppContainer-apps (UWP/WinUI/Store) tot de proxy:
 	"log.error":          "fout: %v",
 	"log.httpsNoDecrypt": "(niet ontsleuteld)",
 	"log.httpsNote":      "body is versleuteld; alleen de host (SNI) wordt getoond. Ontsleuteling vereist dat de app onze CA vertrouwt.",
-	"log.mitmRejected":   "TLS-MITM geweigerd door app voor %s — certificaat niet vertrouwd (voer `unpin` uit); terugval naar pass-through voor deze host",
+	"log.mitmRejected":   "TLS-MITM geweigerd door app voor %s — certificaat niet vertrouwd; terugval naar pass-through voor deze host",
+	"log.mitmHintCA":     "pid %d is geen Flutter — de CA moet vertrouwd zijn (curl/browsers gebruiken de systeemstore)",
 
 	"ui.status":         "Filter: %s   [p] PID instellen   [a] alle   [s] status   [q] afsluiten",
 	"ui.filterAll":      "alle processen",

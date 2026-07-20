@@ -18,6 +18,7 @@ var en = map[string]string{
 	"flag.logFile":         "duplicate capture to a file (without ANSI colors)",
 	"flag.noTUI":           "disable the TUI, stream the log",
 	"flag.tlsMITM":         "in transparent mode, decrypt HTTPS (MITM); otherwise only SNI host + passthrough",
+	"flag.autoUnpin":       "with --tls-mitm: auto-disable TLS verify in new Flutter processes (Windows only; default on)",
 	"flag.lang":            "interface language: en, ru, fr, de, nl, es, pt (default: system)",
 
 	// сообщения main
@@ -29,6 +30,7 @@ var en = map[string]string{
 	"main.warnQUIC":        "⚠ QUIC capture unavailable: %v",
 	"main.shutdown":        "Shutting down, restoring settings…",
 	"main.restored":        "System proxy settings restored.",
+	"main.autoUnpinOn":     "auto-unpin: watching for new Flutter processes (Windows)",
 
 	// справка (usage)
 	"usage.header": `httpsniff — HTTP/HTTPS traffic interceptor (MITM proxy) for Windows, Linux and macOS
@@ -90,7 +92,8 @@ Windows 11 — access for AppContainer apps (UWP/WinUI/Store) to the proxy:
 	"log.error":          "error: %v",
 	"log.httpsNoDecrypt": "(not decrypted)",
 	"log.httpsNote":      "body is encrypted; only the host (SNI) is shown. Decryption needs the app to trust our CA.",
-	"log.mitmRejected":   "TLS MITM rejected by app for %s — certificate not trusted (run `unpin`); falling back to pass-through for this host",
+	"log.mitmRejected":   "TLS MITM rejected by app for %s — certificate not trusted; falling back to pass-through for this host",
+	"log.mitmHintCA":     "pid %d is not Flutter — ensure the CA is trusted (curl/browsers use the system store; re-run with admin if install failed)",
 
 	// интерфейс (ui)
 	"ui.status":         "Filter: %s   [p] set PID   [a] all   [s] status   [q] quit",

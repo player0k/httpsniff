@@ -44,8 +44,12 @@ type Proxy struct {
 	counter    atomic.Uint64
 	logger     Logger
 	logFile    *os.File
-	tlsMITM    bool         // в прозрачном режиме: MITM HTTPS (true) или SNI+проброс (false)
+	tlsMITM    bool          // в прозрачном режиме: MITM HTTPS (true) или SNI+проброс (false)
 	mitmFailed mitmFailedMap // host(SNI) -> time.Time: где MITM отклонён, дальше — проброс (с TTL)
+
+	// onMITMRejected вызывается при отказе клиента от MITM-сертификата
+	// (pid, host). Используется auto-unpin для Flutter на Windows.
+	onMITMRejected func(pid int, host string)
 
 	parentsMu    sync.Mutex
 	parentsCache map[int]int
@@ -127,6 +131,29 @@ func (p *Proxy) LoggingToFile() bool { return p.logFile != nil }
 // SetTLSMITM управляет поведением HTTPS в прозрачном режиме: true — расшифровывать
 // (MITM), false — только SNI-хост и прозрачный проброс (не ломает Flutter/Dart).
 func (p *Proxy) SetTLSMITM(v bool) { p.tlsMITM = v }
+
+// SetOnMITMRejected задаёт колбэк при отказе приложения от MITM-сертификата.
+func (p *Proxy) SetOnMITMRejected(fn func(pid int, host string)) {
+	p.onMITMRejected = fn
+}
+
+// ClearMITMFailed сбрасывает кеш хостов с отклонённым MITM, чтобы следующая
+// попытка снова шла через расшифровку (например, после успешного unpin).
+func (p *Proxy) ClearMITMFailed() {
+	p.mitmFailed.mu.Lock()
+	p.mitmFailed.entries = make(map[string]time.Time)
+	p.mitmFailed.mu.Unlock()
+}
+
+// ClearMITMFailedHost сбрасывает запись для одного хоста.
+func (p *Proxy) ClearMITMFailedHost(host string) {
+	if host == "" {
+		return
+	}
+	p.mitmFailed.mu.Lock()
+	delete(p.mitmFailed.entries, host)
+	p.mitmFailed.mu.Unlock()
+}
 
 // FilterPID возвращает текущий PID-фильтр (0 = все процессы).
 func (p *Proxy) FilterPID() int { return int(p.filterPID.Load()) }
@@ -221,7 +248,9 @@ func (p *Proxy) handleConnect(client net.Conn, host string, capture bool, pid in
 	if _, err := client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
 		return
 	}
-	if !capture {
+	sni := hostOnly(host)
+	// Без захвата или хост ранее отверг MITM — сквозной TCP-туннель.
+	if !capture || (sni != "" && p.mitmFailed.load(sni)) {
 		upstream, err := net.Dial("tcp", host)
 		if err != nil {
 			return
@@ -232,6 +261,14 @@ func (p *Proxy) handleConnect(client net.Conn, host string, capture bool, pid in
 	}
 	tlsConn := tlsx.Server(client, p.ca.GetCertificate)
 	if err := tlsConn.Handshake(); err != nil {
+		// Клиент не принял MITM-сертификат (нет доверия к CA / pinning).
+		if sni != "" {
+			p.mitmFailed.store(sni)
+		}
+		p.emit(render.MITMRejected(pid, sni, err))
+		if p.onMITMRejected != nil {
+			p.onMITMRejected(pid, sni)
+		}
 		return
 	}
 	defer tlsConn.Close()
@@ -289,12 +326,15 @@ func (p *Proxy) HandleTransparent(conn net.Conn, origDst string, pid int) {
 			if sni != "" {
 				p.mitmFailed.store(sni)
 			}
+			host := sni
+			if host == "" {
+				host = origDst
+			}
 			if capture {
-				host := sni
-				if host == "" {
-					host = origDst
-				}
 				p.emit(render.MITMRejected(pid, host, err))
+			}
+			if p.onMITMRejected != nil {
+				p.onMITMRejected(pid, host)
 			}
 			return
 		}

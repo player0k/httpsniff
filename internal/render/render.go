@@ -57,7 +57,9 @@ func RequestError(pid int, req *http.Request, err error) string {
 }
 
 // MITMRejected форматирует запись об отклонённом приложением MITM-рукопожатии
-// (сертификат не доверен — нужен unpin; дальше по этому хосту — проброс).
+// (сертификат не доверен; дальше по этому хосту — проброс).
+// Для Flutter на Windows auto-unpin попытается пропатчить процесс;
+// для curl/браузеров нужен доверенный CA в системном store.
 func MITMRejected(pid int, host string, err error) string {
 	return fmt.Sprintf("\033[1;31m✗ PID=%s %s: %v\033[0m\n", pidStr(pid), i18n.T("log.mitmRejected", host), err)
 }

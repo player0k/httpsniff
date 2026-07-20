@@ -72,7 +72,8 @@ func collectHints(certPath string) []string {
 
 	// Flutter/Dart
 	hints = append(hints,
-		"Flutter/Dart: httpsniff unpin --pid <PID> --auto --apply (только Windows).",
+		"Flutter/Dart (Windows): при --tls-mitm auto-unpin патчит новые процессы сам;",
+		"  вручную: httpsniff unpin --pid <PID> --auto --apply.",
 	)
 
 	return hints

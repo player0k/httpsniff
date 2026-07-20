@@ -17,6 +17,7 @@ var es = map[string]string{
 	"flag.logFile":         "duplicar la captura en un archivo (sin colores ANSI)",
 	"flag.noTUI":           "desactivar la TUI, mostrar el registro en flujo",
 	"flag.tlsMITM":         "en modo transparente, descifrar HTTPS (MITM); si no, solo host SNI + reenvío",
+	"flag.autoUnpin":       "con --tls-mitm: desactivar auto. la verificación TLS de nuevos procesos Flutter (solo Windows; activado por defecto)",
 	"flag.lang":            "idioma de la interfaz: en, ru, fr, de, nl, es, pt (por defecto: sistema)",
 
 	"main.errCAInit":       "Error de inicialización del CA: %v",
@@ -27,6 +28,7 @@ var es = map[string]string{
 	"main.warnQUIC":        "⚠ Captura QUIC no disponible: %v",
 	"main.shutdown":        "Cerrando, restaurando la configuración…",
 	"main.restored":        "Configuración del proxy del sistema restaurada.",
+	"main.autoUnpinOn":     "auto-unpin: vigilando nuevos procesos Flutter (Windows)",
 
 	"usage.header": `httpsniff — interceptor de tráfico HTTP/HTTPS (proxy MITM) para Windows, Linux y macOS
 
@@ -85,7 +87,8 @@ Windows 11 — acceso de apps AppContainer (UWP/WinUI/Store) al proxy:
 	"log.error":          "error: %v",
 	"log.httpsNoDecrypt": "(sin descifrar)",
 	"log.httpsNote":      "cuerpo cifrado; solo se muestra el host (SNI). El descifrado requiere que la app confíe en nuestro CA.",
-	"log.mitmRejected":   "MITM TLS rechazado por la app para %s — certificado no confiable (ejecuta `unpin`); se usa passthrough para este host",
+	"log.mitmRejected":   "MITM TLS rechazado por la app para %s — certificado no confiable; se usa passthrough para este host",
+	"log.mitmHintCA":     "pid %d no es Flutter — el CA debe ser de confianza (curl/navegadores usan el almacén del sistema)",
 
 	"ui.status":         "Filtro: %s   [p] fijar PID   [a] todos   [s] estado   [q] salir",
 	"ui.filterAll":      "todos los procesos",

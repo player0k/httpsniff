@@ -17,6 +17,7 @@ var ru = map[string]string{
 	"flag.logFile":         "дублировать перехват в файл (без ANSI-цветов)",
 	"flag.noTUI":           "отключить TUI, выводить лог потоком",
 	"flag.tlsMITM":         "в прозрачном режиме расшифровывать HTTPS (MITM); иначе только SNI-хост + проброс",
+	"flag.autoUnpin":       "с --tls-mitm: авто-отключение проверки TLS у новых Flutter-процессов (только Windows; по умолчанию вкл.)",
 	"flag.lang":            "язык интерфейса: en, ru, fr, de, nl, es, pt (по умолчанию — язык системы)",
 
 	"main.errCAInit":       "Ошибка инициализации CA: %v",
@@ -27,6 +28,7 @@ var ru = map[string]string{
 	"main.warnQUIC":        "⚠ Перехват QUIC недоступен: %v",
 	"main.shutdown":        "Завершение, восстанавливаю настройки…",
 	"main.restored":        "Настройки системного прокси восстановлены.",
+	"main.autoUnpinOn":     "auto-unpin: слежу за новыми Flutter-процессами (Windows)",
 
 	"usage.header": `httpsniff — перехватчик HTTP/HTTPS-трафика (MITM-прокси) для Windows, Linux и macOS
 
@@ -85,7 +87,8 @@ Windows 11 — доступ приложений из AppContainer (UWP/WinUI/St
 	"log.error":          "ошибка: %v",
 	"log.httpsNoDecrypt": "(без расшифровки)",
 	"log.httpsNote":      "тело зашифровано; показан только хост (SNI). Для расшифровки нужен доверенный CA у приложения.",
-	"log.mitmRejected":   "MITM отклонён приложением для %s — сертификат не доверен (примените `unpin`); дальше по этому хосту — проброс",
+	"log.mitmRejected":   "MITM отклонён приложением для %s — сертификат не доверен; дальше по этому хосту — проброс",
+	"log.mitmHintCA":     "pid %d — не Flutter: нужен доверенный CA (curl/браузеры берут системное хранилище; перезапустите от админа, если установка CA не удалась)",
 
 	"ui.status":         "Фильтр: %s   [p] задать PID   [a] все   [s] статус   [q] выход",
 	"ui.filterAll":      "все процессы",

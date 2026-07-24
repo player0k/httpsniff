@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -189,15 +188,6 @@ func (a *Authority) certFor(host string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, fmt.Errorf("серийный номер листа: %w", err)
 	}
-	// id-pkix-ocsp-nocheck: Windows Schannel не пытается проверять
-	// отзыв сертификата (CRL/OCSP), иначе самоподписанный CA вызывает
-	// CRYPT_E_NO_REVOCATION_CHECK.
-	ocspNoCheckExt := pkix.Extension{
-		Id:       asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 10},
-		Critical: false,
-		Value:    []byte{0x01, 0x01, 0xff}, // ASN.1 BOOLEAN TRUE
-	}
-
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: host},
@@ -205,7 +195,6 @@ func (a *Authority) certFor(host string) (*tls.Certificate, error) {
 		NotAfter:     time.Now().AddDate(1, 0, 0),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		ExtraExtensions: []pkix.Extension{ocspNoCheckExt},
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		tmpl.IPAddresses = []net.IP{ip}

@@ -116,7 +116,7 @@ Windows 11 — доступ приложений из AppContainer (UWP/WinUI/St
 	"proxy.transparentLinuxActive":    "  Прозрачный TCP слушает %s. iptables REDIRECT настроен автоматически (TCP 80/443 → :%d). Правила будут удалены при выходе.",
 	"proxy.errIptablesNotFound":       "iptables не найден; установите iptables или настройте перенаправление вручную",
 	"proxy.errIptablesSetup":          "не удалось настроить iptables REDIRECT: %s",
-	"proxy.transparentMacOS":          "  Прозрачный TCP слушает %s. Настройте редирект pf, например:\n    echo 'rdr pass on lo0 inet proto tcp to any port {80,443} -> 127.0.0.1 port %d' | sudo pfctl -ef -",
+	"proxy.transparentMacOS":          "  Прозрачный TCP слушает %s. PF автоматически настроен (TCP 80/443 → :%d); правила будут удалены при выходе.",
 	"proxy.errPfOpen":                 "не удалось открыть /dev/pf (прозрачный режим требует запуска от root)",
 	"proxy.errTransparentUnsupported": "прозрачный режим не поддерживается на этой платформе",
 	"proxy.errWinDivertMissing":       "WinDivert.dll не найдена рядом с программой; скачайте WinDivert (https://reqrypt.org/windivert.html), положите WinDivert.dll и WinDivert64.sys в папку с httpsniff. Пока используется системный прокси (--system-proxy)",
@@ -165,9 +165,9 @@ Windows 11 — доступ приложений из AppContainer (UWP/WinUI/St
 	"up.flagAuto":   "автоматический режим: перебрать все известные сигнатуры и применить",
 	"up.flagDump":   "показать байты функции до/после патча (диагностика)",
 
-	"up.autoStart":        "Автоматический режим: перебираю известные сигнатуры Flutter/BoringSSL…",
+	"up.autoStart":          "Автоматический режим: перебираю известные сигнатуры Flutter/BoringSSL…",
 	"up.autoAlreadyPatched": "функция уже пропатчена старой версией (возврат 0) — исправляю на возврат 1",
-	"up.autoFound":        "✓ Найдена сигнатура: %s — %s",
-	"up.autoNotFound":     "ни одна известная сигнатура не подошла — возможно, очень новая версия Flutter (задайте свою --sig)",
-	"up.autoDryRun":       "(dry-run) для применения патча добавьте --apply",
+	"up.autoFound":          "✓ Найдена сигнатура: %s — %s",
+	"up.autoNotFound":       "ни одна известная сигнатура не подошла — возможно, очень новая версия Flutter (задайте свою --sig)",
+	"up.autoDryRun":         "(dry-run) для применения патча добавьте --apply",
 }

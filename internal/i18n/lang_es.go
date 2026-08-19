@@ -116,7 +116,7 @@ Windows 11 — acceso de apps AppContainer (UWP/WinUI/Store) al proxy:
 	"proxy.transparentLinuxActive":    "  TCP transparente escuchando en %s. iptables REDIRECT configurado automáticamente (TCP 80/443 → :%d). Las reglas se eliminarán al salir.",
 	"proxy.errIptablesNotFound":       "iptables no encontrado; instale iptables o configure la redirección manualmente",
 	"proxy.errIptablesSetup":          "error al configurar iptables REDIRECT: %s",
-	"proxy.transparentMacOS":          "  TCP transparente escuchando en %s. Configure la redirección de pf, p. ej.:\n    echo 'rdr pass on lo0 inet proto tcp to any port {80,443} -> 127.0.0.1 port %d' | sudo pfctl -ef -",
+	"proxy.transparentMacOS":          "  TCP transparente escuchando en %s. PF configurado automáticamente (TCP 80/443 → :%d); las reglas se eliminarán al salir.",
 	"proxy.errPfOpen":                 "no se puede abrir /dev/pf (el modo transparente requiere root)",
 	"proxy.errTransparentUnsupported": "el modo transparente no es compatible con esta plataforma",
 	"proxy.errWinDivertMissing":       "WinDivert.dll no encontrado junto al programa; descargue WinDivert (https://reqrypt.org/windivert.html), coloque WinDivert.dll y WinDivert64.sys en la carpeta de httpsniff. Por ahora se usa el proxy del sistema (--system-proxy)",
@@ -165,9 +165,9 @@ Requiere permisos de administrador (excepto list).
 	"up.flagAuto":   "modo automático: probar todas las firmas conocidas y aplicar",
 	"up.flagDump":   "mostrar bytes de la función antes/después del parche (diagnóstico)",
 
-	"up.autoStart":        "Modo automático: probando firmas conocidas de Flutter/BoringSSL…",
+	"up.autoStart":          "Modo automático: probando firmas conocidas de Flutter/BoringSSL…",
 	"up.autoAlreadyPatched": "función ya parcheada por versión anterior (retorna 0) — corrigiendo a retorno 1",
-	"up.autoFound":        "✓ Firma encontrada: %s — %s",
-	"up.autoNotFound":     "ninguna firma conocida coincide — quizá versión muy nueva de Flutter (indique su propia --sig)",
-	"up.autoDryRun":       "(dry-run) añada --apply para aplicar el parche",
+	"up.autoFound":          "✓ Firma encontrada: %s — %s",
+	"up.autoNotFound":       "ninguna firma conocida coincide — quizá versión muy nueva de Flutter (indique su propia --sig)",
+	"up.autoDryRun":         "(dry-run) añada --apply para aplicar el parche",
 }

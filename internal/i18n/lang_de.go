@@ -116,7 +116,7 @@ Windows 11 — Zugriff von AppContainer-Apps (UWP/WinUI/Store) auf den Proxy:
 	"proxy.transparentLinuxActive":    "  Transparentes TCP lauscht auf %s. iptables REDIRECT automatisch konfiguriert (TCP 80/443 → :%d). Regeln werden beim Beenden entfernt.",
 	"proxy.errIptablesNotFound":       "iptables nicht gefunden; installieren Sie iptables oder richten Sie die Umleitung manuell ein",
 	"proxy.errIptablesSetup":          "iptables REDIRECT konnte nicht eingerichtet werden: %s",
-	"proxy.transparentMacOS":          "  Transparentes TCP lauscht auf %s. pf-Umleitung einrichten, z. B.:\n    echo 'rdr pass on lo0 inet proto tcp to any port {80,443} -> 127.0.0.1 port %d' | sudo pfctl -ef -",
+	"proxy.transparentMacOS":          "  Transparentes TCP lauscht auf %s. PF wurde automatisch konfiguriert (TCP 80/443 → :%d); die Regeln werden beim Beenden entfernt.",
 	"proxy.errPfOpen":                 "/dev/pf kann nicht geöffnet werden (transparenter Modus erfordert root)",
 	"proxy.errTransparentUnsupported": "der transparente Modus wird auf dieser Plattform nicht unterstützt",
 	"proxy.errWinDivertMissing":       "WinDivert.dll nicht neben dem Programm gefunden; laden Sie WinDivert herunter (https://reqrypt.org/windivert.html), legen Sie WinDivert.dll und WinDivert64.sys in den httpsniff-Ordner. Es wird vorerst der System-Proxy verwendet (--system-proxy)",
@@ -165,9 +165,9 @@ Erfordert Administratorrechte (außer list).
 	"up.flagAuto":   "Automatischer Modus: alle bekannten Signaturen ausprobieren und anwenden",
 	"up.flagDump":   "Funktionsbytes vor/nach Patch anzeigen (Diagnose)",
 
-	"up.autoStart":        "Automatischer Modus: Teste bekannte Flutter/BoringSSL-Signaturen…",
+	"up.autoStart":          "Automatischer Modus: Teste bekannte Flutter/BoringSSL-Signaturen…",
 	"up.autoAlreadyPatched": "Funktion bereits von älterer Version gepatcht (Rückgabe 0) — korrigiere auf Rückgabe 1",
-	"up.autoFound":        "✓ Signatur gefunden: %s — %s",
-	"up.autoNotFound":     "keine bekannte Signatur passt — evtl. sehr neue Flutter-Version (geben Sie eigene --sig an)",
-	"up.autoDryRun":       "(dry-run) fügen Sie --apply hinzu, um den Patch anzuwenden",
+	"up.autoFound":          "✓ Signatur gefunden: %s — %s",
+	"up.autoNotFound":       "keine bekannte Signatur passt — evtl. sehr neue Flutter-Version (geben Sie eigene --sig an)",
+	"up.autoDryRun":         "(dry-run) fügen Sie --apply hinzu, um den Patch anzuwenden",
 }

@@ -267,11 +267,12 @@ require admin rights. `list` works without admin.
 - **macOS** — implemented via packet filter **pf**: `rdr` rule redirects
   TCP to the local interceptor port, and the original destination address is restored via
   ioctl `DIOCNATLOOK` on `/dev/pf` (similar to `SO_ORIGINAL_DST`,
-  [transparent_darwin.go](internal/proxy/transparent_darwin.go)). Requires root.
-  Example pf rule is displayed when launching with `--transparent`:
+  [transparent_darwin.go](internal/proxy/transparent_darwin.go)). Requires root. The
+  rules are installed automatically in the isolated `com.apple/httpsniff` anchor and
+  removed on exit, so clients such as `curl` need no proxy option:
   ```sh
-  echo 'rdr pass on lo0 inet proto tcp to any port {80,443} -> 127.0.0.1 port 8889' | sudo pfctl -ef -
   sudo httpsniff --transparent
+  curl https://ya.ru
   ```
 - **Windows** — implemented on the **WinDivert** driver ([windivert_windows.go](internal/proxy/windivert_windows.go)):
   redirects outgoing TCP from selected processes (by PID/tree) to a local port using

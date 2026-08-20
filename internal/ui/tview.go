@@ -22,6 +22,10 @@ type tviewUI struct {
 	pidIn   *tview.InputField
 	ctrl    Controller
 	pidOpen bool
+	// autoScroll — режим слежения за концом лога: при новом пакете вид
+	// автоматически прокручивается вниз. Прокрутка (PgUp/PgDn/↑/↓/Home)
+	// выключает режим; хоткей [f] или End — включает обратно.
+	autoScroll bool
 }
 
 // NewTview создаёт полноэкранный TUI, управляющий фильтром через контроллер.
@@ -53,7 +57,8 @@ func newTview(ctrl Controller) *tviewUI {
 		AddPage("main", flex, true, true).
 		AddPage("pid", center(pidIn, 40, 3), true, false)
 
-	u := &tviewUI{app: app, logView: logView, status: status, pages: pages, pidIn: pidIn, ctrl: ctrl}
+	u := &tviewUI{app: app, logView: logView, status: status, pages: pages, pidIn: pidIn, ctrl: ctrl, autoScroll: true}
+	logView.ScrollToEnd()
 
 	pidIn.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
@@ -85,7 +90,23 @@ func newTview(ctrl Controller) *tviewUI {
 			u.app.Stop()
 			return nil
 		}
+		// Ручная прокрутка выключает автослежение — вид остаётся там, где его
+		// оставил пользователь, даже когда приходят новые пакеты.
+		switch ev.Key() {
+		case tcell.KeyPgUp, tcell.KeyPgDn, tcell.KeyUp, tcell.KeyDown, tcell.KeyHome:
+			if u.autoScroll {
+				u.autoScroll = false
+				u.refreshStatus()
+			}
+			return ev // прокрутку выполняет сам TextView
+		case tcell.KeyEnd:
+			u.setAutoScroll(true)
+			return ev
+		}
 		switch ev.Rune() {
+		case 'f', 'F':
+			u.setAutoScroll(!u.autoScroll)
+			return nil
 		case 'p', 'P':
 			u.openPID()
 			return nil
@@ -115,8 +136,23 @@ func (u *tviewUI) openPID() {
 	u.app.SetFocus(u.pidIn)
 }
 
+// setAutoScroll включает/выключает режим слежения. При включении вид сразу
+// прокручивается к концу лога, чтобы дальше следовать за новыми пакетами.
+func (u *tviewUI) setAutoScroll(on bool) {
+	u.autoScroll = on
+	if on {
+		u.logView.ScrollToEnd()
+	}
+	u.refreshStatus()
+}
+
 func (u *tviewUI) refreshStatus() {
 	line := statusLine(u.ctrl)
+	if u.autoScroll {
+		line += "   " + i18n.T("ui.tuiFollowOn")
+	} else {
+		line += "   " + i18n.T("ui.tuiFollowOff")
+	}
 	if u.ctrl.LoggingToFile() {
 		line += "   " + i18n.T("ui.logToFile")
 	}

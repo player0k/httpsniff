@@ -101,6 +101,8 @@ Windows 11 — accès des applis AppContainer (UWP/WinUI/Store) au proxy :
 	"ui.tuiFilterTitle": " Filtrer par processus ",
 	"ui.tuiPidLabel":    " PID (vide = tous) : ",
 	"ui.tuiError":       "Erreur du TUI :",
+	"ui.tuiFollowOn":    "▼ défilement auto [f]",
+	"ui.tuiFollowOff":   "❚❚ en pause [f]",
 
 	"sysproxy.hintWin":         "Proxy système Windows activé (WinINET). Les navigateurs et applis qui utilisent\n  les paramètres système passeront automatiquement par l'intercepteur.",
 	"sysproxy.hintLinux":       "Proxy système GNOME activé (gsettings). Pour capturer hors de GNOME,\n  utilisez --transparent (iptables REDIRECT).",

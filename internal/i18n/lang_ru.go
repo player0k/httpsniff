@@ -101,6 +101,8 @@ Windows 11 — доступ приложений из AppContainer (UWP/WinUI/St
 	"ui.tuiFilterTitle": " Фильтр по процессу ",
 	"ui.tuiPidLabel":    " PID (пусто = все): ",
 	"ui.tuiError":       "Ошибка TUI:",
+	"ui.tuiFollowOn":    "▼ автопрокрутка [f]",
+	"ui.tuiFollowOff":   "❚❚ пауза [f]",
 
 	"sysproxy.hintWin":         "Системный прокси Windows включён (WinINET). Браузеры и приложения,\n  использующие системные настройки, пойдут через перехватчик автоматически.",
 	"sysproxy.hintLinux":       "Системный прокси GNOME включён (gsettings). Для перехвата вне GNOME\n  используйте --transparent (iptables REDIRECT).",

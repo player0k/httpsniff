@@ -107,6 +107,8 @@ Windows 11 — access for AppContainer apps (UWP/WinUI/Store) to the proxy:
 	"ui.tuiFilterTitle": " Filter by process ",
 	"ui.tuiPidLabel":    " PID (empty = all): ",
 	"ui.tuiError":       "TUI error:",
+	"ui.tuiFollowOn":    "▼ auto-scroll [f]",
+	"ui.tuiFollowOff":   "❚❚ paused [f]",
 
 	// системный прокси (sysproxy)
 	"sysproxy.hintWin":         "Windows system proxy enabled (WinINET). Browsers and apps that use\n  system settings will go through the interceptor automatically.",
